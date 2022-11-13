@@ -241,7 +241,6 @@ class GatewayController @Autowired constructor(val queueKeeper: QueueKeeper) {
         // Better use like a transaction but... You know. I don't give a shit.
         ClientKeeper.client.newCall(reserveCarRequest).execute().use { response ->
             if (!response.isSuccessful) return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build()
-
         }
 
         val rentalPeriodDays = ChronoUnit.DAYS.between(reservation.dateFrom, reservation.dateTo)
@@ -268,7 +267,7 @@ class GatewayController @Autowired constructor(val queueKeeper: QueueKeeper) {
 
         ClientKeeper.client.newCall(rentalRequest).execute().use { response ->
             if (!response.isSuccessful)  {
-                var restoreRequest = OkHttpKeeper
+                val restoreRequest = OkHttpKeeper
                     .builder
                     .url(OkHttpKeeper.CARS_URL + "/${car.carUid}/available")
                     .patch(EMPTY_REQUEST)
