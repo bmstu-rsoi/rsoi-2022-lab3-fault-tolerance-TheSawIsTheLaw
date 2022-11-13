@@ -11,18 +11,15 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.internal.EMPTY_REQUEST
 import okio.use
+import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.context.annotation.Bean
 import org.springframework.http.HttpStatus
-import org.springframework.http.MediaType
 import org.springframework.http.ResponseEntity
 import org.springframework.stereotype.Controller
 import org.springframework.web.bind.annotation.*
-import services.gateway.CircuitBreaker
 import services.gateway.entity.*
 import services.gateway.entity.response.*
-import services.gateway.utils.ClientKeeper
-import services.gateway.utils.GsonKeeper
-import services.gateway.utils.OkHttpKeeper
+import services.gateway.utils.*
 import java.io.IOException
 import java.text.SimpleDateFormat
 import java.time.Instant
@@ -32,40 +29,11 @@ import java.time.temporal.ChronoUnit
 import java.util.*
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.BlockingQueue
-import java.util.concurrent.TimeUnit
 import kotlin.concurrent.thread
 
 @Controller
 @RequestMapping("api/v1")
-class GatewayController {
-
-    val rentalRequestsQueue: BlockingQueue<Request> = ArrayBlockingQueue(100)
-
-    val paymentRequestsQueue: BlockingQueue<Request> = ArrayBlockingQueue(100)
-
-    init {
-        thread {
-            while (true) {
-                val request = rentalRequestsQueue.poll()
-                if (request != null) {
-                    ClientKeeper.client.newCall(request).execute().use { response ->
-                        if (!response.isSuccessful) rentalRequestsQueue.add(request)
-                    }
-                }
-            }
-        }.start()
-
-        thread {
-            while (true) {
-                val request = paymentRequestsQueue.poll()
-                if (request != null) {
-                    ClientKeeper.client.newCall(request).execute().use { response ->
-                        if (!response.isSuccessful) paymentRequestsQueue.add(request)
-                    }
-                }
-            }
-        }
-    }
+class GatewayController @Autowired constructor(val queueKeeper: QueueKeeper) {
 
     @Bean
     fun javaTimeModule(): JavaTimeModule? {
@@ -458,7 +426,7 @@ class GatewayController {
                 .build()
 
         if (!ClientKeeper.client.newCall(cancelRentalRequest).execute().isSuccessful) {
-            rentalRequestsQueue.add(cancelRentalRequest)
+            queueKeeper.rentalRequestsQueue.add(cancelRentalRequest)
         }
 
         val cancelPaymentRequest =
@@ -469,7 +437,7 @@ class GatewayController {
                 .build()
 
         if (!ClientKeeper.client.newCall(cancelPaymentRequest).execute().isSuccessful) {
-            paymentRequestsQueue.add(cancelPaymentRequest)
+            queueKeeper.paymentRequestsQueue.add(cancelPaymentRequest)
         }
 
         return ResponseEntity("...", HttpStatus.NO_CONTENT)
