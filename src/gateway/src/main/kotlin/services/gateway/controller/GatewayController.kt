@@ -14,6 +14,7 @@ import okio.use
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.context.annotation.Bean
 import org.springframework.http.HttpStatus
+import org.springframework.http.MediaType
 import org.springframework.http.ResponseEntity
 import org.springframework.stereotype.Controller
 import org.springframework.web.bind.annotation.*
@@ -30,6 +31,8 @@ import java.util.*
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.BlockingQueue
 import kotlin.concurrent.thread
+
+class ResponseMessage(val message: String)
 
 @Controller
 @RequestMapping("api/v1")
@@ -222,11 +225,11 @@ class GatewayController @Autowired constructor(val queueKeeper: QueueKeeper) {
         )
     }
 
-    @PostMapping("/rental")
+    @PostMapping("/rental", produces = [MediaType.APPLICATION_JSON_VALUE])
     fun reserveRental(
         @RequestHeader("X-User-Name") username: String,
         @RequestBody reservation: RentalReservation
-    ) : ResponseEntity<ReservationResponse> {
+    ) : ResponseEntity<Any> {
 
         val cars = getCars(false).body ?: return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build()
         val car = cars.findLast { it.carUid == reservation.carUid } ?: return ResponseEntity.badRequest().build()
@@ -313,7 +316,9 @@ class GatewayController @Autowired constructor(val queueKeeper: QueueKeeper) {
 
                 ClientKeeper.client.newCall(restoreRentalRequest).execute()
 
-                return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build()
+                return ResponseEntity
+                    .status(HttpStatus.SERVICE_UNAVAILABLE)
+                    .body(ResponseMessage("Payment Service unavailable"))
             }
         }
 
