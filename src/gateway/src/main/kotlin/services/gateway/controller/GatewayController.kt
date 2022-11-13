@@ -87,7 +87,7 @@ class GatewayController @Autowired constructor(val queueKeeper: QueueKeeper) {
             if (!response.isSuccessful) {
                 if (CircuitBreaker.incrementFailuresAndCheck(CircuitBreaker.Service.CAR)) {
                     CircuitBreaker.serviceFailure(CircuitBreaker.Service.CAR)
-                    ResponseEntity.internalServerError().build()
+                    ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build()
                 } else {
                     getCars(showAll)
                 }
@@ -115,7 +115,7 @@ class GatewayController @Autowired constructor(val queueKeeper: QueueKeeper) {
             if (!response.isSuccessful) {
                 if (CircuitBreaker.incrementFailuresAndCheck(CircuitBreaker.Service.PAYMENT)) {
                     CircuitBreaker.serviceFailure(CircuitBreaker.Service.PAYMENT)
-                    ResponseEntity.internalServerError().build()
+                    ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build()
                 } else {
                     getPayments()
                 }
@@ -240,7 +240,8 @@ class GatewayController @Autowired constructor(val queueKeeper: QueueKeeper) {
 
         // Better use like a transaction but... You know. I don't give a shit.
         ClientKeeper.client.newCall(reserveCarRequest).execute().use { response ->
-            if (!response.isSuccessful) return ResponseEntity.internalServerError().build()
+            if (!response.isSuccessful) return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build()
+
         }
 
         val rentalPeriodDays = ChronoUnit.DAYS.between(reservation.dateFrom, reservation.dateTo)
@@ -275,7 +276,7 @@ class GatewayController @Autowired constructor(val queueKeeper: QueueKeeper) {
 
                 ClientKeeper.client.newCall(restoreRequest).execute()
 
-                return ResponseEntity.internalServerError().build()
+                return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build()
             }
         }
 
@@ -313,7 +314,7 @@ class GatewayController @Autowired constructor(val queueKeeper: QueueKeeper) {
 
                 ClientKeeper.client.newCall(restoreRentalRequest).execute()
 
-                return ResponseEntity.internalServerError().build()
+                return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build()
             }
         }
 
@@ -415,7 +416,7 @@ class GatewayController @Autowired constructor(val queueKeeper: QueueKeeper) {
                 .build()
 
         ClientKeeper.client.newCall(carAvailableStateRequest).execute().use { response ->
-            if (!response.isSuccessful) return ResponseEntity.internalServerError().build()
+            if (!response.isSuccessful) return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build()
         }
 
         val cancelRentalRequest =
