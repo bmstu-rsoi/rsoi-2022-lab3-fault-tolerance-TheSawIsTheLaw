@@ -55,4 +55,7 @@ class RentalController {
     @PatchMapping("/{rentalUid}/cancel")
     fun cancelRental(@PathVariable rentalUid: UUID): ResponseEntity<*> =
         ResponseEntity("...", HttpStatus.OK).apply { RentalRepository.setStatus(rentalUid, "CANCELED") }
+
+    @GetMapping("/manage/health")
+    fun healthCheck(): ResponseEntity<*> = ResponseEntity.ok(null)
 }

@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.deser.std.StdDeserializer
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule
 import com.google.gson.reflect.TypeToken
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.internal.EMPTY_REQUEST
 import okio.use
@@ -16,6 +17,7 @@ import org.springframework.http.MediaType
 import org.springframework.http.ResponseEntity
 import org.springframework.stereotype.Controller
 import org.springframework.web.bind.annotation.*
+import services.gateway.CircuitBreaker
 import services.gateway.entity.*
 import services.gateway.entity.response.*
 import services.gateway.utils.ClientKeeper
@@ -28,10 +30,42 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 import java.util.*
+import java.util.concurrent.ArrayBlockingQueue
+import java.util.concurrent.BlockingQueue
+import java.util.concurrent.TimeUnit
+import kotlin.concurrent.thread
 
 @Controller
 @RequestMapping("api/v1")
 class GatewayController {
+
+    val rentalRequestsQueue: BlockingQueue<Request> = ArrayBlockingQueue(100)
+
+    val paymentRequestsQueue: BlockingQueue<Request> = ArrayBlockingQueue(100)
+
+    init {
+        thread {
+            while (true) {
+                val request = rentalRequestsQueue.poll()
+                if (request != null) {
+                    ClientKeeper.client.newCall(request).execute().use { response ->
+                        if (!response.isSuccessful) rentalRequestsQueue.add(request)
+                    }
+                }
+            }
+        }.start()
+
+        thread {
+            while (true) {
+                val request = paymentRequestsQueue.poll()
+                if (request != null) {
+                    ClientKeeper.client.newCall(request).execute().use { response ->
+                        if (!response.isSuccessful) paymentRequestsQueue.add(request)
+                    }
+                }
+            }
+        }
+    }
 
     @Bean
     fun javaTimeModule(): JavaTimeModule? {
@@ -69,7 +103,11 @@ class GatewayController {
         }
     }
 
-    private fun getCars(showAll: Boolean): List<Car>? {
+    private fun getCars(showAll: Boolean): ResponseEntity<List<Car>?> {
+        if (CircuitBreaker.shouldThrowInternalOnCall(CircuitBreaker.Service.CAR)) {
+            return ResponseEntity.internalServerError().build()
+        }
+
         val carRequest =
             OkHttpKeeper
                 .builder
@@ -78,15 +116,26 @@ class GatewayController {
                 .build()
 
         return ClientKeeper.client.newCall(carRequest).execute().use { response ->
-            if (!response.isSuccessful) null
-            else {
+            if (!response.isSuccessful) {
+                if (CircuitBreaker.incrementFailuresAndCheck(CircuitBreaker.Service.CAR)) {
+                    CircuitBreaker.serviceFailure(CircuitBreaker.Service.CAR)
+                    ResponseEntity.internalServerError().build()
+                } else {
+                    getCars(showAll)
+                }
+            } else {
+                CircuitBreaker.serviceIsOk(CircuitBreaker.Service.CAR)
                 val typeToken = object : TypeToken<List<Car>>() {}.type
-                GsonKeeper.gson.fromJson<List<Car>>(response.body!!.string(), typeToken)
+                ResponseEntity.ok(GsonKeeper.gson.fromJson<List<Car>>(response.body!!.string(), typeToken))
             }
         }
     }
 
-    private fun getPayments(): List<Payment>? {
+    private fun getPayments(): ResponseEntity<List<Payment>?> {
+        if (CircuitBreaker.shouldThrowInternalOnCall(CircuitBreaker.Service.PAYMENT)) {
+            return ResponseEntity.internalServerError().build()
+        }
+
         val paymentRequest =
             OkHttpKeeper
                 .builder
@@ -95,10 +144,18 @@ class GatewayController {
                 .build()
 
         return ClientKeeper.client.newCall(paymentRequest).execute().use { response ->
-            if (!response.isSuccessful) null
+            if (!response.isSuccessful) {
+                if (CircuitBreaker.incrementFailuresAndCheck(CircuitBreaker.Service.PAYMENT)) {
+                    CircuitBreaker.serviceFailure(CircuitBreaker.Service.PAYMENT)
+                    ResponseEntity.internalServerError().build()
+                } else {
+                    getPayments()
+                }
+            }
             else {
+                CircuitBreaker.serviceIsOk(CircuitBreaker.Service.PAYMENT)
                 val typeToken = object : TypeToken<List<Payment>>() {}.type
-                GsonKeeper.gson.fromJson<List<Payment>>(response.body!!.string(), typeToken)
+                ResponseEntity.ok(GsonKeeper.gson.fromJson<List<Payment>>(response.body!!.string(), typeToken))
             }
         }
     }
@@ -109,7 +166,7 @@ class GatewayController {
         @RequestParam("size") size: Int,
         @RequestParam("showAll", required = false, defaultValue = "false") showAll: Boolean
     ): ResponseEntity<CarsResponse> {
-        val cars = getCars(showAll) ?: return ResponseEntity.internalServerError().build()
+        val cars = getCars(showAll).body ?: return ResponseEntity.internalServerError().build()
 
         return ResponseEntity.ok(
             CarsResponse(
@@ -138,6 +195,11 @@ class GatewayController {
 
     @GetMapping("/rental")
     fun getRentals(@RequestHeader("X-User-Name") username: String) : ResponseEntity<List<RentalResponse>> {
+
+        if (CircuitBreaker.shouldThrowInternalOnCall(CircuitBreaker.Service.RENTAL)) {
+            return ResponseEntity.internalServerError().build()
+        }
+
         val request =
             OkHttpKeeper
                 .builder
@@ -147,16 +209,24 @@ class GatewayController {
                 .build()
 
         val rentals = ClientKeeper.client.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) emptyList()
+            if (!response.isSuccessful) {
+                return if (CircuitBreaker.incrementFailuresAndCheck(CircuitBreaker.Service.RENTAL)) {
+                    CircuitBreaker.serviceFailure(CircuitBreaker.Service.RENTAL)
+                    ResponseEntity.internalServerError().build()
+                } else {
+                    getRentals(username)
+                }
+            }
             else {
+                CircuitBreaker.serviceIsOk(CircuitBreaker.Service.RENTAL)
                 val typeToken = object : TypeToken<List<Rental>>() {}.type
                 GsonKeeper.gson.fromJson<List<Rental>>(response.body!!.string(), typeToken)
             }
         }
 
-        val cars = getCars(true) ?: return ResponseEntity.internalServerError().build()
+        val cars = getCars(true).body
 
-        val payments = getPayments() ?: return ResponseEntity.internalServerError().build()
+        val payments = getPayments().body
 
         val outputDateFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd").withZone(ZoneId.systemDefault())
 
@@ -168,11 +238,17 @@ class GatewayController {
                     outputDateFormatter.format(rental.dateFrom),
                     outputDateFormatter.format(rental.dateTo),
                     cars
-                        .findLast { car -> car.carUid == rental.carUid }!!
-                        .let { CarRentalResponse(it.carUid, it.brand, it.model, it.registrationNumber) },
+                        ?.findLast { car -> car.carUid == rental.carUid }
+                        .let {
+                            if (it != null) CarRentalResponse(it.carUid, it.brand, it.model, it.registrationNumber)
+                            else CarRentalResponse(rental.carUid)
+                        },
                     payments
-                        .findLast { payment -> payment.paymentUid == rental.paymentUid }!!
-                        .let { PaymentRentalResponse(it.paymentUid, it.status, it.price) }
+                        ?.findLast { payment -> payment.paymentUid == rental.paymentUid }
+                        .let {
+                            if (it != null) PaymentRentalResponse(it.paymentUid, it.status, it.price)
+                            else PaymentRentalResponse(rental.paymentUid)
+                        }
                 )
             }
         )
@@ -183,20 +259,9 @@ class GatewayController {
         @RequestHeader("X-User-Name") username: String,
         @RequestBody reservation: RentalReservation
     ) : ResponseEntity<ReservationResponse> {
-        val carRequest =
-            OkHttpKeeper
-                .builder
-                .url(OkHttpKeeper.CARS_URL + "/${reservation.carUid}")
-                .get()
-                .build()
 
-        val car = ClientKeeper.client.newCall(carRequest).execute().use { response ->
-            if (!response.isSuccessful) null
-            else GsonKeeper.gson.fromJson(response.body!!.string(), Car::class.java)
-        } ?: return ResponseEntity.badRequest().build()
-
-        if (!car.availability)
-            return ResponseEntity.badRequest().build()
+        val cars = getCars(false).body ?: return ResponseEntity.internalServerError().build()
+        val car = cars.findLast { it.carUid == reservation.carUid } ?: return ResponseEntity.badRequest().build()
 
         val reserveCarRequest =
             OkHttpKeeper
@@ -206,7 +271,9 @@ class GatewayController {
                 .build()
 
         // Better use like a transaction but... You know. I don't give a shit.
-        ClientKeeper.client.newCall(reserveCarRequest).execute()
+        ClientKeeper.client.newCall(reserveCarRequest).execute().use { response ->
+            if (!response.isSuccessful) return ResponseEntity.internalServerError().build()
+        }
 
         val rentalPeriodDays = ChronoUnit.DAYS.between(reservation.dateFrom, reservation.dateTo)
         val money = car.price * rentalPeriodDays
@@ -229,7 +296,20 @@ class GatewayController {
                 .url(OkHttpKeeper.RENTAL_URL + "/")
                 .post(GsonKeeper.gson.toJson(rentalToPost).toRequestBody("application/json; charset=utf-8".toMediaType()))
                 .build()
-        ClientKeeper.client.newCall(rentalRequest).execute()
+
+        ClientKeeper.client.newCall(rentalRequest).execute().use { response ->
+            if (!response.isSuccessful)  {
+                var restoreRequest = OkHttpKeeper
+                    .builder
+                    .url(OkHttpKeeper.CARS_URL + "/${car.carUid}/available")
+                    .patch(EMPTY_REQUEST)
+                    .build()
+
+                ClientKeeper.client.newCall(restoreRequest).execute()
+
+                return ResponseEntity.internalServerError().build()
+            }
+        }
 
         val paymentToPost = Payment(
             0,
@@ -245,7 +325,29 @@ class GatewayController {
                 .post(GsonKeeper.gson.toJson(paymentToPost).toRequestBody("application/json; charset=utf-8".toMediaType()))
                 .build()
 
-        ClientKeeper.client.newCall(paymentRequest).execute()
+        ClientKeeper.client.newCall(paymentRequest).execute().use { response ->
+            if (!response.isSuccessful) {
+
+                val restoreCarRequest = OkHttpKeeper
+                    .builder
+                    .url(OkHttpKeeper.CARS_URL + "/${car.carUid}/available")
+                    .patch(EMPTY_REQUEST)
+                    .build()
+
+                ClientKeeper.client.newCall(restoreCarRequest).execute()
+
+                val restoreRentalRequest =
+                    OkHttpKeeper
+                        .builder
+                        .url(OkHttpKeeper.RENTAL_URL + "/${rentalToPost.rentalUid}/cancel")
+                        .patch(EMPTY_REQUEST)
+                        .build()
+
+                ClientKeeper.client.newCall(restoreRentalRequest).execute()
+
+                return ResponseEntity.internalServerError().build()
+            }
+        }
 
         val outputDateFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd").withZone(ZoneId.systemDefault())
 
@@ -270,8 +372,8 @@ class GatewayController {
 
         if (username != rental.username) return ResponseEntity.notFound().build()
 
-        val cars = getCars(true)
-        val payments = getPayments()
+        val cars = getCars(true).body
+        val payments = getPayments().body
 
         val outputDateFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd").withZone(ZoneId.systemDefault())
 
@@ -281,12 +383,18 @@ class GatewayController {
                 rental.status,
                 outputDateFormatter.format(rental.dateFrom),
                 outputDateFormatter.format(rental.dateTo),
-                cars!!
-                    .findLast { car -> car.carUid == rental.carUid }!!
-                    .let { CarRentalResponse(it.carUid, it.brand, it.model, it.registrationNumber) },
-                payments!!
-                    .findLast { payment -> payment.paymentUid == rental.paymentUid }!!
-                    .let { PaymentRentalResponse(it.paymentUid, it.status, it.price) }
+                cars
+                    ?.findLast { car -> car.carUid == rental.carUid }
+                    .let {
+                        if (it != null) CarRentalResponse(it.carUid, it.brand, it.model, it.registrationNumber)
+                        else CarRentalResponse(rental.carUid)
+                    },
+                payments
+                    ?.findLast { payment -> payment.paymentUid == rental.paymentUid }
+                    .let {
+                        if (it != null) PaymentRentalResponse(it.paymentUid, it.status, it.price)
+                        else PaymentRentalResponse(rental.paymentUid)
+                    }
             )
         )
     }
@@ -325,7 +433,7 @@ class GatewayController {
     fun cancelRent(
         @RequestHeader("X-User-Name") username: String,
         @PathVariable rentalUid: UUID
-    ): ResponseEntity<*> {
+    ): ResponseEntity<String> {
         val rental = getRental(rentalUid) ?: return ResponseEntity("lol man", HttpStatus.NOT_FOUND)
 
         if (rental.username != username) return ResponseEntity("lol man", HttpStatus.NOT_FOUND)
@@ -338,7 +446,9 @@ class GatewayController {
                 .patch(EMPTY_REQUEST)
                 .build()
 
-        ClientKeeper.client.newCall(carAvailableStateRequest).execute()
+        ClientKeeper.client.newCall(carAvailableStateRequest).execute().use { response ->
+            if (!response.isSuccessful) return ResponseEntity.internalServerError().build()
+        }
 
         val cancelRentalRequest =
             OkHttpKeeper
@@ -347,7 +457,9 @@ class GatewayController {
                 .patch(EMPTY_REQUEST)
                 .build()
 
-        ClientKeeper.client.newCall(cancelRentalRequest).execute()
+        if (!ClientKeeper.client.newCall(cancelRentalRequest).execute().isSuccessful) {
+            rentalRequestsQueue.add(cancelRentalRequest)
+        }
 
         val cancelPaymentRequest =
             OkHttpKeeper
@@ -356,8 +468,13 @@ class GatewayController {
                 .patch(EMPTY_REQUEST)
                 .build()
 
-        ClientKeeper.client.newCall(cancelPaymentRequest).execute()
+        if (!ClientKeeper.client.newCall(cancelPaymentRequest).execute().isSuccessful) {
+            paymentRequestsQueue.add(cancelPaymentRequest)
+        }
 
         return ResponseEntity("...", HttpStatus.NO_CONTENT)
     }
+
+    @GetMapping("/manage/health")
+    fun healthCheck(): ResponseEntity<*> = ResponseEntity.ok(null)
 }

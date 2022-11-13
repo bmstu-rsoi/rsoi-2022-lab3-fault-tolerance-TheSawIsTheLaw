@@ -1,6 +1,5 @@
 package services.gateway.entity.response
 
-import java.time.Instant
 import java.util.*
 
 class RentalResponse(
@@ -14,13 +13,13 @@ class RentalResponse(
 
 class CarRentalResponse(
     val carUid: UUID,
-    val brand: String,
-    val model: String,
-    val registrationNumber: String
+    val brand: String = "",
+    val model: String = "",
+    val registrationNumber: String = ""
 )
 
 class PaymentRentalResponse(
     val paymentUid: UUID,
-    val status: String,
-    val price: Int
+    val status: String = "",
+    val price: Int = 0
 )

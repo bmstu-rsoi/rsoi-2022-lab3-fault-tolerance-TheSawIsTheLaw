@@ -27,4 +27,7 @@ class CarsController {
     @PatchMapping("/{carUid}/unavailable")
     fun unavailableCar(@PathVariable carUid: UUID): ResponseEntity<*> =
         ResponseEntity("...", HttpStatus.OK).apply { CarsRepository.changeAvailability(carUid, false) }
+
+    @GetMapping("/manage/health")
+    fun healthCheck(): ResponseEntity<*> = ResponseEntity.ok(null)
 }

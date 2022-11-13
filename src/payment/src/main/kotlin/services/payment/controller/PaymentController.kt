@@ -26,4 +26,7 @@ class PaymentController {
     @PostMapping("/")
     fun addPayment(@RequestBody payment: Payment): ResponseEntity<Int> =
         ResponseEntity.ok(PaymentRepository.add(payment))
+
+    @GetMapping("/manage/health")
+    fun healthCheck(): ResponseEntity<*> = ResponseEntity.ok(null)
 }
