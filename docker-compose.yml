@@ -14,7 +14,39 @@ services:
     ports:
       - "5432:5432"
 
-# TODO добавить сервисы
+  cars:
+    build:
+      context: src/cars
+      dockerfile: Dockerfile
+    ports:
+      - "8070:8080"
+
+  rental:
+    build:
+      context: src/rental
+      dockerfile: Dockerfile
+    ports:
+      - "8060:8080"
+
+  payment:
+    build:
+      context: src/payment
+      dockerfile: Dockerfile
+    ports:
+      - "8050:8080"
+
+
+  gateway:
+    build:
+      context: src/gateway
+      dockerfile: Dockerfile
+    network_mode: "host"
+    ports:
+      - "8080:8080"
+    depends_on:
+      - cars
+      - rental
+      - payment
 
 volumes:
   db-data:
