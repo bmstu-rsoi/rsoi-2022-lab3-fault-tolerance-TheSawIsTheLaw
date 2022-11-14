@@ -240,7 +240,7 @@ class GatewayController @Autowired constructor(val queueKeeper: QueueKeeper) {
         @RequestBody reservation: RentalReservation
     ) : ResponseEntity<Any> {
 
-        val cars = getCars(false).body ?: return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build()
+        val cars = getCars(true).body ?: return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build()
         val car = cars.findLast { it.carUid == reservation.carUid } ?: return ResponseEntity.notFound().build()
 
         val reserveCarRequest =
