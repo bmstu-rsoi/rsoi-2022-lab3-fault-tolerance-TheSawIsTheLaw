@@ -35,7 +35,7 @@ jobs:
         env:
           VARIANT: v3
           SERVICE_NAME: payment
-          PORT_NUMBER: 8080
+          PORT_NUMBER: 8050
 
       - uses: education/autograding@v1
         id: autograder
