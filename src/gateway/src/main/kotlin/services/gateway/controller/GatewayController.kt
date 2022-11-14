@@ -114,19 +114,28 @@ class GatewayController @Autowired constructor(val queueKeeper: QueueKeeper) {
                 .get()
                 .build()
 
-        return ClientKeeper.client.newCall(paymentRequest).execute().use { response ->
-            if (!response.isSuccessful) {
-                if (CircuitBreaker.incrementFailuresAndCheck(CircuitBreaker.Service.PAYMENT)) {
-                    CircuitBreaker.serviceFailure(CircuitBreaker.Service.PAYMENT)
-                    ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build()
-                } else {
-                    getPayments()
+        return try {
+            ClientKeeper.client.newCall(paymentRequest).execute().use { response ->
+                if (!response.isSuccessful) {
+                    if (CircuitBreaker.incrementFailuresAndCheck(CircuitBreaker.Service.PAYMENT)) {
+                        CircuitBreaker.serviceFailure(CircuitBreaker.Service.PAYMENT)
+                        ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build()
+                    } else {
+                        getPayments()
+                    }
+                }
+                else {
+                    CircuitBreaker.serviceIsOk(CircuitBreaker.Service.PAYMENT)
+                    val typeToken = object : TypeToken<List<Payment>>() {}.type
+                    ResponseEntity.ok(GsonKeeper.gson.fromJson<List<Payment>>(response.body!!.string(), typeToken))
                 }
             }
-            else {
-                CircuitBreaker.serviceIsOk(CircuitBreaker.Service.PAYMENT)
-                val typeToken = object : TypeToken<List<Payment>>() {}.type
-                ResponseEntity.ok(GsonKeeper.gson.fromJson<List<Payment>>(response.body!!.string(), typeToken))
+        } catch (ex: Exception) {
+            if (CircuitBreaker.incrementFailuresAndCheck(CircuitBreaker.Service.PAYMENT)) {
+                CircuitBreaker.serviceFailure(CircuitBreaker.Service.PAYMENT)
+                ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build()
+            } else {
+                getPayments()
             }
         }
     }
@@ -165,10 +174,10 @@ class GatewayController @Autowired constructor(val queueKeeper: QueueKeeper) {
     }
 
     @GetMapping("/rental")
-    fun getRentals(@RequestHeader("X-User-Name") username: String) : ResponseEntity<List<RentalResponse>> {
+    fun getRentals(@RequestHeader("X-User-Name") username: String) : ResponseEntity<Any> {
 
         if (CircuitBreaker.shouldThrowInternalOnCall(CircuitBreaker.Service.RENTAL)) {
-            return ResponseEntity.internalServerError().build()
+            return ResponseEntity("Rental Service unavailable", HttpStatus.SERVICE_UNAVAILABLE)
         }
 
         val request =
@@ -183,7 +192,7 @@ class GatewayController @Autowired constructor(val queueKeeper: QueueKeeper) {
             if (!response.isSuccessful) {
                 return if (CircuitBreaker.incrementFailuresAndCheck(CircuitBreaker.Service.RENTAL)) {
                     CircuitBreaker.serviceFailure(CircuitBreaker.Service.RENTAL)
-                    ResponseEntity.internalServerError().build()
+                    ResponseEntity("Rental Service unavailable", HttpStatus.SERVICE_UNAVAILABLE)
                 } else {
                     getRentals(username)
                 }
@@ -242,6 +251,7 @@ class GatewayController @Autowired constructor(val queueKeeper: QueueKeeper) {
                 .build()
 
         // Better use like a transaction but... You know. I don't give a shit.
+
         ClientKeeper.client.newCall(reserveCarRequest).execute().use { response ->
             if (!response.isSuccessful) return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build()
         }
