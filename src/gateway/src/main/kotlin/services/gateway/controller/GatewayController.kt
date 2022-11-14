@@ -306,32 +306,37 @@ class GatewayController @Autowired constructor(val queueKeeper: QueueKeeper) {
                 .post(GsonKeeper.gson.toJson(paymentToPost).toRequestBody("application/json; charset=utf-8".toMediaType()))
                 .build()
 
-        ClientKeeper.client.newCall(paymentRequest).execute().use { response ->
-            if (!response.isSuccessful) {
+        try {
+            ClientKeeper.client.newCall(paymentRequest).execute().use { response ->
+                if (!response.isSuccessful) {
 
-                val restoreCarRequest = OkHttpKeeper
-                    .builder
-                    .url(OkHttpKeeper.CARS_URL + "/${car.carUid}/available")
-                    .patch(EMPTY_REQUEST)
-                    .build()
-
-                ClientKeeper.client.newCall(restoreCarRequest).execute()
-
-                val restoreRentalRequest =
-                    OkHttpKeeper
+                    val restoreCarRequest = OkHttpKeeper
                         .builder
-                        .url(OkHttpKeeper.RENTAL_URL + "/${rentalToPost.rentalUid}/cancel")
+                        .url(OkHttpKeeper.CARS_URL + "/${car.carUid}/available")
                         .patch(EMPTY_REQUEST)
                         .build()
 
-                ClientKeeper.client.newCall(restoreRentalRequest).execute()
+                    ClientKeeper.client.newCall(restoreCarRequest).execute()
 
-                return ResponseEntity
-                    .status(HttpStatus.SERVICE_UNAVAILABLE)
-                    .body(ResponseMessage("Payment Service unavailable"))
+                    val restoreRentalRequest =
+                        OkHttpKeeper
+                            .builder
+                            .url(OkHttpKeeper.RENTAL_URL + "/${rentalToPost.rentalUid}/cancel")
+                            .patch(EMPTY_REQUEST)
+                            .build()
+
+                    ClientKeeper.client.newCall(restoreRentalRequest).execute()
+
+                    return ResponseEntity
+                        .status(HttpStatus.SERVICE_UNAVAILABLE)
+                        .body(ResponseMessage("Payment Service unavailable"))
+                }
             }
+        } catch (ex: Exception) {
+            return ResponseEntity
+                .status(HttpStatus.SERVICE_UNAVAILABLE)
+                .body(ResponseMessage("Payment Service unavailable"))
         }
-
         val outputDateFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd").withZone(ZoneId.systemDefault())
 
         return ResponseEntity.ok(
