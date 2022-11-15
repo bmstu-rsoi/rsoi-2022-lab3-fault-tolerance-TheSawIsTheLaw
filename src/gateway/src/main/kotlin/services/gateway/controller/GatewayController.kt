@@ -251,7 +251,6 @@ class GatewayController @Autowired constructor(val queueKeeper: QueueKeeper) {
                 .build()
 
         // Better use like a transaction but... You know. I don't give a shit.
-
         ClientKeeper.client.newCall(reserveCarRequest).execute().use { response ->
             if (!response.isSuccessful) return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build()
         }
@@ -381,7 +380,7 @@ class GatewayController @Autowired constructor(val queueKeeper: QueueKeeper) {
                     ?.findLast { payment -> payment.paymentUid == rental.paymentUid }
                     .let {
                         if (it != null) PaymentRentalResponse(it.paymentUid, it.status, it.price)
-                        else PaymentRentalResponse(rental.paymentUid)
+                        else BasePaymentResponse()
                     }
             )
         )
@@ -456,7 +455,11 @@ class GatewayController @Autowired constructor(val queueKeeper: QueueKeeper) {
                 .patch(EMPTY_REQUEST)
                 .build()
 
-        if (!ClientKeeper.client.newCall(cancelPaymentRequest).execute().isSuccessful) {
+        try {
+            if (!ClientKeeper.client.newCall(cancelPaymentRequest).execute().isSuccessful) {
+                queueKeeper.paymentRequestsQueue.add(cancelPaymentRequest)
+            }
+        } catch (ex: Exception) {
             queueKeeper.paymentRequestsQueue.add(cancelPaymentRequest)
         }
 

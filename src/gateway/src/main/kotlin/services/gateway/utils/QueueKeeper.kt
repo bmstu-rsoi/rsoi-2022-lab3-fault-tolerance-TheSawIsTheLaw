@@ -19,8 +19,12 @@ class QueueKeeper {
             while (true) {
                 val request = rentalRequestsQueue.poll()
                 if (request != null) {
-                    ClientKeeper.client.newCall(request).execute().use { response ->
-                        if (!response.isSuccessful) rentalRequestsQueue.add(request)
+                    try {
+                        ClientKeeper.client.newCall(request).execute().use { response ->
+                            if (!response.isSuccessful) rentalRequestsQueue.add(request)
+                        }
+                    } catch (ex: Exception) {
+                        rentalRequestsQueue.add(request)
                     }
                 }
             }
@@ -30,8 +34,12 @@ class QueueKeeper {
             while (true) {
                 val request = paymentRequestsQueue.poll()
                 if (request != null) {
-                    ClientKeeper.client.newCall(request).execute().use { response ->
-                        if (!response.isSuccessful) paymentRequestsQueue.add(request)
+                    try {
+                        ClientKeeper.client.newCall(request).execute().use { response ->
+                            if (!response.isSuccessful) paymentRequestsQueue.add(request)
+                        }
+                    } catch (ex: Exception) {
+                        paymentRequestsQueue.add(request)
                     }
                 }
             }

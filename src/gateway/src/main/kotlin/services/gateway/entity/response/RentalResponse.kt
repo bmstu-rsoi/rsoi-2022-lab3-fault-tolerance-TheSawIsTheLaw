@@ -8,7 +8,7 @@ class RentalResponse(
     val dateFrom: String,
     val dateTo: String,
     val car: CarRentalResponse,
-    val payment: PaymentRentalResponse
+    val payment: BasePaymentResponse
 )
 
 class CarRentalResponse(
@@ -18,8 +18,9 @@ class CarRentalResponse(
     val registrationNumber: String = ""
 )
 
+open class BasePaymentResponse
 class PaymentRentalResponse(
     val paymentUid: UUID,
     val status: String = "",
     val price: Int = 0
-)
+): BasePaymentResponse()
